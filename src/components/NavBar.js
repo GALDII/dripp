@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 /**
@@ -14,10 +14,18 @@ function NavLink({ to, children, currentPath }) {
   };
 
   return (
-    <a href={to} className="relative group text-gray-300 hover:text-yellow-400 transition-colors duration-300" style={isActive ? activeLinkStyle : {}}>
+    <Link
+      to={to}
+      className="relative group text-gray-300 hover:text-yellow-400 transition-colors duration-300"
+      style={isActive ? activeLinkStyle : {}}
+    >
       {children}
-      <span className={`absolute bottom-[-4px] left-0 w-full h-0.5 bg-yellow-400 scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center ${isActive ? 'scale-x-100' : ''}`}></span>
-    </a>
+      <span
+        className={`absolute bottom-[-4px] left-0 w-full h-0.5 bg-yellow-400 scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center ${
+          isActive ? 'scale-x-100' : ''
+        }`}
+      ></span>
+    </Link>
   );
 }
 
@@ -44,7 +52,6 @@ function MenuButton({ isOpen, onClick }) {
 }
 
 // --- Main Navbar Component ---
-
 export default function NavBar() {
   const [scrolled, setScrolled] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -72,17 +79,27 @@ export default function NavBar() {
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <a href="/" className="text-3xl font-bold text-yellow-400 hover:text-yellow-300 transition-all duration-300" style={{ textShadow: '0 0 10px rgba(251, 191, 36, 0.5)' }}>
+          <Link
+            to="/"
+            className="text-3xl font-bold text-yellow-400 hover:text-yellow-300 transition-all duration-300"
+            style={{ textShadow: '0 0 10px rgba(251, 191, 36, 0.5)' }}
+          >
             ☀ Solar Sentinel
-          </a>
-          
+          </Link>
+
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-10 text-xl">
-            <NavLink to="/" currentPath={location.pathname}>Home</NavLink>
-            <NavLink to="/upload" currentPath={location.pathname}>Predict</NavLink>
-            <NavLink to="/about" currentPath={location.pathname}>About Flares</NavLink>
+            <NavLink to="/" currentPath={location.pathname}>
+              Home
+            </NavLink>
+            <NavLink to="/upload" currentPath={location.pathname}>
+              Predict
+            </NavLink>
+            <NavLink to="/about" currentPath={location.pathname}>
+              About Flares
+            </NavLink>
           </div>
-          
+
           {/* Mobile Menu Button */}
           <div className="md:hidden">
             <MenuButton isOpen={isOpen} onClick={() => setIsOpen(!isOpen)} />
@@ -109,9 +126,15 @@ export default function NavBar() {
               onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the menu
             >
               <div className="flex flex-col items-center space-y-8 text-3xl">
-                <a href="/" className="text-gray-300 hover:text-yellow-400">Home</a>
-                <a href="/upload" className="text-gray-300 hover:text-yellow-400">Predict</a>
-                <a href="/about" className="text-gray-300 hover:text-yellow-400">About Flares</a>
+                <Link to="/" className="text-gray-300 hover:text-yellow-400">
+                  Home
+                </Link>
+                <Link to="/upload" className="text-gray-300 hover:text-yellow-400">
+                  Predict
+                </Link>
+                <Link to="/about" className="text-gray-300 hover:text-yellow-400">
+                  About Flares
+                </Link>
               </div>
             </motion.div>
           </motion.div>
