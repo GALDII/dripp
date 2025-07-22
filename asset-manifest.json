@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/dripp/static/css/main.0d24f934.css",
-    "main.js": "/dripp/static/js/main.da644750.js",
+    "main.css": "/dripp/static/css/main.37251236.css",
+    "main.js": "/dripp/static/js/main.357c6133.js",
     "static/js/453.ba08c2ca.chunk.js": "/dripp/static/js/453.ba08c2ca.chunk.js",
     "index.html": "/dripp/index.html",
-    "main.0d24f934.css.map": "/dripp/static/css/main.0d24f934.css.map",
-    "main.da644750.js.map": "/dripp/static/js/main.da644750.js.map",
+    "main.37251236.css.map": "/dripp/static/css/main.37251236.css.map",
+    "main.357c6133.js.map": "/dripp/static/js/main.357c6133.js.map",
     "453.ba08c2ca.chunk.js.map": "/dripp/static/js/453.ba08c2ca.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.0d24f934.css",
-    "static/js/main.da644750.js"
+    "static/css/main.37251236.css",
+    "static/js/main.357c6133.js"
   ]
 }
