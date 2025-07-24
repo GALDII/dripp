@@ -126,7 +126,28 @@ export default function About() {
     <>
       {/* Style tag for custom keyframe animations */}
       <style>{`
-        .animate-blob {
+        .star-bg {
+          background-color: #0c0a18;
+          background-image: 
+            radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+            radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
+            radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px),
+            radial-gradient(rgba(255,255,255,.4), rgba(255,255,255,.1) 2px, transparent 30px);
+          background-size: 550px 550px, 350px 350px, 250px 250px, 150px 150px;
+          background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
+          animation: stars 200s linear infinite;
+        }
+
+        @keyframes stars {
+          from {
+            background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
+          }
+          to {
+            background-position: -10000px 5000px, -10000px 5000px, -10000px 5000px, -10000px 5000px;
+          }
+        }
+
+         .animate-blob {
           animation: blob 8s infinite;
         }
         @keyframes blob {
@@ -137,7 +158,7 @@ export default function About() {
         }
       `}</style>
 
-      <div className="relative min-h-screen w-full overflow-x-hidden overflow-y-auto bg-gradient-to-br from-black via-purple-950 to-black text-white pb-32 font-sans">
+      <div className="star-bg relative min-h-screen w-full overflow-x-hidden overflow-y-auto bg-gradient-to-br from-black via-purple-950 to-black text-white pb-32 font-sans">
         {/* animated background blobs */}
         <div className="pointer-events-none absolute -top-32 -left-32 w-[28rem] h-[28rem] rounded-full bg-yellow-500/10 blur-3xl animate-blob" />
         <div

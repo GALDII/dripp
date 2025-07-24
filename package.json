@@ -5,6 +5,7 @@
   "homepage": "https://GALDII.github.io/dripp",
   "dependencies": {
     "@craco/craco": "^7.1.0",
+    "@tensorflow/tfjs": "^4.22.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as tf from '@tensorflow/tfjs';
 
-// --- Reusable Helper Components ---
+// --- Reusable Helper Components (No changes needed here) ---
 
 /**
  * A component explaining how to convert the Keras model for web use.
@@ -125,38 +126,26 @@ function ImageDisplay({ image, mask }) {
 // --- Main Upload Page Component ---
 
 export default function Upload() {
-  const [tfReady, setTfReady] = useState(false);
   const [model, setModel] = useState(null);
-  const [modelLoadingStatus, setModelLoadingStatus] = useState('Loading TensorFlow.js...');
+  const [modelLoadingStatus, setModelLoadingStatus] = useState('Loading model...');
   const [image, setImage] = useState(null);
   const [mask, setMask] = useState(null);
   const [loading, setLoading] = useState(false);
   const canvasRef = useRef(null);
 
   // The URL to your converted TensorFlow.js model's model.json file
-  const MODEL_URL = 'https://your-server.com/path/to/tfjs_model/model.json'; // IMPORTANT: Replace with your model's URL
+  // This file must be in the `public` folder of your project.
+  const MODEL_URL = '/tfjs_model/model.json';
 
-  // Effect to load the TensorFlow.js script
+  // Effect to load the model once the component mounts
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js';
-    script.async = true;
-    script.onload = () => {
-      setTfReady(true);
-      setModelLoadingStatus('TensorFlow.js loaded. Loading model...');
-    };
-    document.body.appendChild(script);
-    return () => {
-      document.body.removeChild(script);
-    }
-  }, []);
-
-  // Effect to load the model once TF.js is ready
-  useEffect(() => {
-    if (!tfReady) return;
     async function loadModel() {
       try {
-        const loadedModel = await window.tf.loadLayersModel(MODEL_URL);
+        // Set a backend to avoid warnings, and wait for it to be ready
+        await tf.setBackend('webgl');
+        await tf.ready();
+        
+        const loadedModel = await tf.loadLayersModel(MODEL_URL);
         setModel(loadedModel);
         setModelLoadingStatus('Model ready!');
       } catch (error) {
@@ -165,68 +154,118 @@ export default function Upload() {
       }
     }
     loadModel();
-  }, [tfReady]);
+  }, []); // Empty dependency array means this runs once on mount
 
   const handleImageUpload = (newImage) => {
     setImage(newImage);
     setMask(null);
   };
 
+  /**
+   * Handles the prediction logic, ensuring the image is fully loaded first.
+   */
   const handlePredict = async () => {
     if (!image) return;
     setLoading(true);
 
+    // Fallback prediction if the model failed to load
     if (!model) {
-      // Fallback prediction if the model failed to load
       setTimeout(() => {
-        const randomMask = `https://picsum.photos/seed/${Math.random()}/800/600`;
+        const randomMask = `https://picsum.photos/seed/${Math.random()}/512/512`;
         setMask(randomMask);
         setLoading(false);
       }, 1500);
       return;
     }
 
-    // Real prediction using TensorFlow.js
     const imageElement = document.getElementById('uploaded-image');
     if (!imageElement) {
         setLoading(false);
+        console.error("Could not find image element.");
         return;
     }
 
-    // Preprocess the image
-    const tensor = window.tf.browser.fromPixels(imageElement)
-      .resizeBilinear([180, 180])
-      .toFloat()
-      .div(window.tf.scalar(255.0))
-      .expandDims();
+    // This is the core logic for prediction
+    const runPrediction = async (img) => {
+        let tensor, predictionTensor, maskTensor;
+        try {
+            // Preprocess the image
+            tensor = tf.browser.fromPixels(img)
+                .resizeBilinear([180, 180])
+                .toFloat()
+                .div(tf.scalar(255.0))
+                .expandDims();
 
-    // Run prediction
-    const predictionTensor = model.predict(tensor);
-    
-    // Post-process the output tensor to display it
-    const maskTensor = predictionTensor.squeeze().mul(255).cast('int32');
-    const canvas = canvasRef.current;
-    canvas.width = 180;
-    canvas.height = 180;
-    await window.tf.browser.toPixels(maskTensor, canvas);
-    setMask(canvas.toDataURL());
-    
-    // Clean up tensors
-    tensor.dispose();
-    predictionTensor.dispose();
-    maskTensor.dispose();
+            // Run prediction
+            predictionTensor = model.predict(tensor);
+            
+            // Post-process the output tensor to display it
+            maskTensor = predictionTensor.squeeze().mul(255).cast('int32');
+            const canvas = canvasRef.current;
+            canvas.width = 180;
+            canvas.height = 180;
+            await tf.browser.toPixels(maskTensor, canvas);
+            setMask(canvas.toDataURL());
+        } catch(error) {
+            console.error("Error during prediction: ", error);
+            setModelLoadingStatus("An error occurred during prediction.");
+        } finally {
+            // Clean up tensors to free up memory
+            if (tensor) tensor.dispose();
+            if (predictionTensor) predictionTensor.dispose();
+            if (maskTensor) maskTensor.dispose();
+            setLoading(false);
+        }
+    };
 
-    setLoading(false);
+    // --- Reliability Check ---
+    // Check if the image is already fully loaded and ready
+    if (imageElement.complete && imageElement.naturalHeight !== 0) {
+        runPrediction(imageElement);
+    } else {
+        // If not, wait for it to load before running prediction
+        imageElement.onload = () => {
+            runPrediction(imageElement);
+        };
+    }
   };
 
   return (
     <>
       <style>{`
-        .animate-blob { animation: blob 8s infinite; }
-        @keyframes blob { 0% { transform: translate(0px, 0px) scale(1); } 33% { transform: translate(30px, -20px) scale(1.05); } 66% { transform: translate(-20px, 20px) scale(0.97); } 100% { transform: translate(0px, 0px) scale(1); } }
+        .star-bg {
+          background-color: #0c0a18;
+          background-image: 
+            radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+            radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
+            radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px),
+            radial-gradient(rgba(255,255,255,.4), rgba(255,255,255,.1) 2px, transparent 30px);
+          background-size: 550px 550px, 350px 350px, 250px 250px, 150px 150px;
+          background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
+          animation: stars 200s linear infinite;
+        }
+
+        @keyframes stars {
+          from {
+            background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
+          }
+          to {
+            background-position: -10000px 5000px, -10000px 5000px, -10000px 5000px, -10000px 5000px;
+          }
+        }
+
+        .animate-blob {
+          animation: blob 8s infinite;
+        }
+        @keyframes blob {
+          0% { transform: translate(0px, 0px) scale(1); }
+          33% { transform: translate(30px, -20px) scale(1.05); }
+          66% { transform: translate(-20px, 20px) scale(0.97); }
+          100% { transform: translate(0px, 0px) scale(1); }
+        }
       `}</style>
 
-      <div className="relative min-h-screen w-full flex flex-col items-center justify-center bg-gradient-to-br from-black via-purple-950 to-black text-white p-6 md:p-12 font-sans overflow-hidden">
+      <div className="relative min-h-screen w-full flex flex-col items-center justify-center star-bg text-white p-6 md:p-12 font-sans overflow-hidden">
         <div className="pointer-events-none absolute -top-32 -left-32 w-[28rem] h-[28rem] rounded-full bg-yellow-500/10 blur-3xl animate-blob" />
         <div className="pointer-events-none absolute -bottom-40 -right-40 w-[32rem] h-[32rem] rounded-full bg-purple-600/10 blur-3xl animate-blob" style={{ animationDelay: '4s' }} />
         
@@ -247,7 +286,7 @@ export default function Upload() {
           <p className="text-xs text-gray-400 mb-8">{modelLoadingStatus}</p>
 
           <div className="flex flex-col md:flex-row items-center gap-6">
-            <UploadButton onImageUpload={handleImageUpload} disabled={!model && modelLoadingStatus.includes('Error')} />
+            <UploadButton onImageUpload={handleImageUpload} disabled={loading || modelLoadingStatus.includes('Error')} />
             <PredictButton onPredict={handlePredict} loading={loading} hasImage={!!image} />
           </div>
 
