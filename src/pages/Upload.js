@@ -1,310 +1,228 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import * as tf from '@tensorflow/tfjs';
 
-// --- Reusable Helper Components (No changes needed here) ---
+// --- HELPER & UI COMPONENTS ---
 
-/**
- * A component explaining how to convert the Keras model for web use.
- */
-function ModelInfo() {
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.5 }}
-      className="w-full max-w-4xl mb-8 p-4 border border-blue-400/40 bg-blue-500/10 rounded-xl text-center text-sm text-gray-300"
-    >
-      <h4 className="font-bold mb-2 text-blue-300">Note for Developers: Using Your Model</h4>
-      <p>To use your <code className="bg-gray-700 p-1 rounded">.keras</code> model in the browser, you first need to convert it to the TensorFlow.js format using the command-line tool:</p>
-      <code className="block bg-gray-800 p-2 rounded my-2 text-left text-xs">pip install tensorflowjs<br/>tensorflowjs_converter --input_format=keras_v3 model_autoencoder_mask.keras ./public/tfjs_model/</code>
-      <p>Then, host the generated <code className="bg-gray-700 p-1 rounded">./public/tfjs_model/</code> directory and update the <code className="bg-gray-700 p-1 rounded">MODEL_URL</code> in the code to point to your <code className="bg-gray-700 p-1 rounded">model.json</code> file.</p>
-    </motion.div>
-  );
-}
+const UploadIcon = () => (
+  <svg className="w-16 h-16 mx-auto text-gray-500 transition-transform duration-300 group-hover:scale-110" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
-/**
- * A component for the upload button and file input logic.
- */
-function UploadButton({ onImageUpload, disabled }) {
-  const fileInputRef = useRef(null);
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file && file.type.startsWith('image/')) {
-      onImageUpload(URL.createObjectURL(file));
-    }
-  };
-
-  const handleButtonClick = () => fileInputRef.current.click();
-
-  return (
-    <>
-      <input
-        type="file"
-        accept="image/*"
-        ref={fileInputRef}
-        onChange={handleImageChange}
-        className="hidden"
-      />
-      <motion.button
-        onClick={handleButtonClick}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        disabled={disabled}
-        className="bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-3 px-8 rounded-full shadow-lg shadow-yellow-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Choose Solar Image
-      </motion.button>
-    </>
-  );
-}
-
-/**
- * A component for the prediction button with loading state.
- */
-function PredictButton({ onPredict, loading, hasImage }) {
-  return (
-    <motion.button
-      onClick={onPredict}
-      disabled={!hasImage || loading}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      className="bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold py-3 px-8 rounded-full shadow-lg shadow-orange-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      {loading ? (
-        <div className="flex items-center justify-center">
-          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          Processing...
-        </div>
+const ImagePanel = ({ src, title, isLoading }) => (
+  <div className="text-center">
+    <h3 className="text-2xl font-semibold mb-4 text-yellow-400">{title}</h3>
+    <div className="w-full h-60 md:h-80 flex items-center justify-center bg-black/20 rounded-xl overflow-hidden border border-gray-700">
+      {isLoading ? (
+        <div className="text-gray-400">Processing...</div>
+      ) : src ? (
+        <img src={src} alt={title} className="w-full h-full object-contain" />
       ) : (
-        'Generate Prediction'
+        <div className="text-gray-400">No image</div>
       )}
-    </motion.button>
-  );
-}
+    </div>
+  </div>
+);
 
-/**
- * A component to display the uploaded image and the predicted mask side-by-side.
- */
-function ImageDisplay({ image, mask }) {
+
+// --- OPENCV IMAGE PROCESSING COMPONENT ---
+
+function SolarImageProcessor({ uploadedImage, onBack }) {
+  const [processed, setProcessed] = useState({ original: null, contours: null, mask: null });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!uploadedImage) return;
+
+    // Ensure OpenCV is loaded
+    if (!window.cv) {
+        console.error("OpenCV.js is not loaded.");
+        setIsLoading(false);
+        return;
+    }
+
+    setIsLoading(true);
+    const img = new window.Image();
+    img.crossOrigin = "anonymous"; // Handle potential CORS issues with object URLs
+    img.src = uploadedImage;
+    img.onload = () => {
+      try {
+        const cv = window.cv;
+        let src = cv.imread(img);
+        let gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+        let binary = new cv.Mat();
+        cv.threshold(gray, binary, 200, 255, cv.THRESH_BINARY);
+        let edges = new cv.Mat();
+        cv.Canny(binary, edges, 10, 100);
+        let planes = new cv.MatVector();
+        cv.split(src, planes);
+        const firstChannel = planes.get(0);
+        let blended = new cv.Mat();
+        cv.addWeighted(firstChannel, 0.8, edges, 0.4, 0.5, blended);
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        cv.cvtColor(blended, blended, cv.COLOR_GRAY2RGBA);
+
+        for (let i = 0; i < contours.size(); ++i) {
+          let rect = cv.boundingRect(contours.get(i));
+          let color = new cv.Scalar(255, 0, 0, 255);
+          cv.rectangle(blended, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), color, 2);
+        }
+
+        const canvas = document.createElement('canvas');
+        cv.imshow(canvas, blended);
+        const contourDataUrl = canvas.toDataURL();
+        cv.imshow(canvas, binary);
+        const maskDataUrl = canvas.toDataURL();
+
+        setProcessed({
+          original: uploadedImage,
+          contours: contourDataUrl,
+          mask: maskDataUrl,
+        });
+
+        // Cleanup
+        src.delete(); gray.delete(); binary.delete(); edges.delete();
+        contours.delete(); hierarchy.delete(); planes.delete(); firstChannel.delete(); blended.delete();
+      } catch (error) {
+          console.error("Error during OpenCV processing:", error);
+      } finally {
+          setIsLoading(false);
+      }
+    };
+     img.onerror = () => {
+        console.error("Failed to load image for processing.");
+        setIsLoading(false);
+    }
+  }, [uploadedImage]);
+
   return (
-    <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
-      <AnimatePresence>
-        {image && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center"
-          >
-            <h3 className="text-2xl font-semibold mb-4 text-gray-300">Your Image</h3>
-            <img id="uploaded-image" src={image} alt="Uploaded solar" className="w-full h-auto object-cover rounded-2xl shadow-2xl border-2 border-white/10" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {mask && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="text-center"
-          >
-            <h3 className="text-2xl font-semibold mb-4 text-yellow-300">Predicted Flare Mask</h3>
-            <img src={mask} alt="Predicted mask" className="w-full h-auto object-cover rounded-2xl shadow-2xl border-2 border-yellow-400/50" />
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="w-full animate-fade-in">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl">
+            <ImagePanel src={processed.original} title="Original Image" isLoading={isLoading} />
+            <ImagePanel src={processed.contours} title="Blended Contours" isLoading={isLoading} />
+            <ImagePanel src={processed.mask} title="Mask/Threshold" isLoading={isLoading} />
+        </div>
+        <div className="text-center mt-8">
+            <button 
+                onClick={onBack}
+                className="py-2 px-6 bg-gray-600 text-white rounded-full font-bold shadow-md hover:bg-gray-500 transition-all duration-300"
+            >
+                Analyze Another Image
+            </button>
+        </div>
     </div>
   );
 }
 
 
-// --- Main Upload Page Component ---
+// --- MAIN UPLOAD PAGE COMPONENT ---
 
-export default function Upload() {
-  const [model, setModel] = useState(null);
-  const [modelLoadingStatus, setModelLoadingStatus] = useState('Loading model...');
-  const [image, setImage] = useState(null);
-  const [mask, setMask] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const canvasRef = useRef(null);
+export default function UploadPage() {
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false); // State to switch to analysis view
+  const [isCvReady, setIsCvReady] = useState(false); // State to track if OpenCV is loaded
+  const fileInputRef = useRef(null);
 
-  // The URL to your converted TensorFlow.js model's model.json file
-  // This file must be in the `public` folder of your project.
-  const MODEL_URL = '/tfjs_model/model.json';
-
-  // Effect to load the model once the component mounts
+  // Check if OpenCV is loaded
   useEffect(() => {
-    async function loadModel() {
-      try {
-        // Set a backend to avoid warnings, and wait for it to be ready
-        await tf.setBackend('webgl');
-        await tf.ready();
-        
-        const loadedModel = await tf.loadLayersModel(MODEL_URL);
-        setModel(loadedModel);
-        setModelLoadingStatus('Model ready!');
-      } catch (error) {
-        console.error("Error loading model: ", error);
-        setModelLoadingStatus('Error: Could not load model. Using fallback.');
-      }
-    }
-    loadModel();
-  }, []); // Empty dependency array means this runs once on mount
-
-  const handleImageUpload = (newImage) => {
-    setImage(newImage);
-    setMask(null);
-  };
-
-  /**
-   * Handles the prediction logic, ensuring the image is fully loaded first.
-   */
-  const handlePredict = async () => {
-    if (!image) return;
-    setLoading(true);
-
-    // Fallback prediction if the model failed to load
-    if (!model) {
-      setTimeout(() => {
-        const randomMask = `https://picsum.photos/seed/${Math.random()}/512/512`;
-        setMask(randomMask);
-        setLoading(false);
-      }, 1500);
-      return;
-    }
-
-    const imageElement = document.getElementById('uploaded-image');
-    if (!imageElement) {
-        setLoading(false);
-        console.error("Could not find image element.");
-        return;
-    }
-
-    // This is the core logic for prediction
-    const runPrediction = async (img) => {
-        let tensor, predictionTensor, maskTensor;
-        try {
-            // Preprocess the image
-            tensor = tf.browser.fromPixels(img)
-                .resizeBilinear([180, 180])
-                .toFloat()
-                .div(tf.scalar(255.0))
-                .expandDims();
-
-            // Run prediction
-            predictionTensor = model.predict(tensor);
-            
-            // Post-process the output tensor to display it
-            maskTensor = predictionTensor.squeeze().mul(255).cast('int32');
-            const canvas = canvasRef.current;
-            canvas.width = 180;
-            canvas.height = 180;
-            await tf.browser.toPixels(maskTensor, canvas);
-            setMask(canvas.toDataURL());
-        } catch(error) {
-            console.error("Error during prediction: ", error);
-            setModelLoadingStatus("An error occurred during prediction.");
-        } finally {
-            // Clean up tensors to free up memory
-            if (tensor) tensor.dispose();
-            if (predictionTensor) predictionTensor.dispose();
-            if (maskTensor) maskTensor.dispose();
-            setLoading(false);
-        }
-    };
-
-    // --- Reliability Check ---
-    // Check if the image is already fully loaded and ready
-    if (imageElement.complete && imageElement.naturalHeight !== 0) {
-        runPrediction(imageElement);
+    if (window.cv) {
+        setIsCvReady(true);
     } else {
-        // If not, wait for it to load before running prediction
-        imageElement.onload = () => {
-            runPrediction(imageElement);
-        };
+        window.cv_onRuntimeInitialized = () => setIsCvReady(true);
+    }
+  }, []);
+
+  // Clean up object URL
+  useEffect(() => {
+    return () => {
+      if (uploadedImage) URL.revokeObjectURL(uploadedImage.preview);
+    };
+  }, [uploadedImage]);
+
+  const handleFile = (file) => {
+    if (file && file.type.startsWith('image/')) {
+      if (uploadedImage) URL.revokeObjectURL(uploadedImage.preview); // Clean up previous
+      const imageObject = { file, preview: URL.createObjectURL(file) };
+      setUploadedImage(imageObject);
     }
   };
 
-  return (
-    <>
-      <style>{`
-        .star-bg {
-          background-color: #0c0a18;
-          background-image: 
-            radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
-            radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
-            radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px),
-            radial-gradient(rgba(255,255,255,.4), rgba(255,255,255,.1) 2px, transparent 30px);
-          background-size: 550px 550px, 350px 350px, 250px 250px, 150px 150px;
-          background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
-          animation: stars 200s linear infinite;
-        }
+  const handleRemoveImage = () => setUploadedImage(null);
+  const handleBrowseClick = () => fileInputRef.current.click();
+  const handleFileInputChange = (e) => handleFile(e.target.files[0]);
+  
+  // --- CLICK HANDLER FOR THE BUTTON ---
+  const handleAnalyzeClick = () => {
+      if(uploadedImage) {
+          setIsAnalyzing(true);
+      }
+  };
+  
+  const handleBackToUpload = () => {
+      setIsAnalyzing(false);
+      setUploadedImage(null);
+  }
 
-        @keyframes stars {
-          from {
-            background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
-          }
-          to {
-            background-position: -10000px 5000px, -10000px 5000px, -10000px 5000px, -10000px 5000px;
-          }
-        }
+  // Drag and Drop handlers
+  const handleDragEnter = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  };
 
-        .animate-blob {
-          animation: blob 8s infinite;
-        }
-        @keyframes blob {
-          0% { transform: translate(0px, 0px) scale(1); }
-          33% { transform: translate(30px, -20px) scale(1.05); }
-          66% { transform: translate(-20px, 20px) scale(0.97); }
-          100% { transform: translate(0px, 0px) scale(1); }
-        }
-      `}</style>
-
-      <div className="relative min-h-screen w-full flex flex-col items-center justify-center star-bg text-white p-6 md:p-12 font-sans overflow-hidden">
-        <div className="pointer-events-none absolute -top-32 -left-32 w-[28rem] h-[28rem] rounded-full bg-yellow-500/10 blur-3xl animate-blob" />
-        <div className="pointer-events-none absolute -bottom-40 -right-40 w-[32rem] h-[32rem] rounded-full bg-purple-600/10 blur-3xl animate-blob" style={{ animationDelay: '4s' }} />
-        
-        <ModelInfo />
-
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, type: 'spring' }}
-          className="relative z-10 w-full max-w-5xl bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8 md:p-12 text-center flex flex-col items-center"
-        >
-          <h2 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-orange-400 mb-4">
-            Flare Prediction
-          </h2>
-          <p className="text-lg text-gray-300 max-w-2xl mb-2">
-            Upload an image of the Sun to generate a predicted mask highlighting potential solar flare regions.
-          </p>
-          <p className="text-xs text-gray-400 mb-8">{modelLoadingStatus}</p>
-
-          <div className="flex flex-col md:flex-row items-center gap-6">
-            <UploadButton onImageUpload={handleImageUpload} disabled={loading || modelLoadingStatus.includes('Error')} />
-            <PredictButton onPredict={handlePredict} loading={loading} hasImage={!!image} />
-          </div>
-
-          <AnimatePresence>
-            {image && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="w-full"
-              >
-                <ImageDisplay image={image} mask={mask} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-        <canvas ref={canvasRef} className="hidden"></canvas>
+  // Render loading screen if OpenCV isn't ready
+  if (!isCvReady) {
+    return (
+      <div className="bg-gray-900 text-white p-8 flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-xl">Loading Analysis Engine...</p>
+        </div>
       </div>
-    </>
+    );
+  }
+  
+  // Main render logic
+  return (
+    <div className="bg-gray-900 text-white p-4 sm:p-8 flex items-center justify-center min-h-screen">
+      <div className="w-full max-w-7xl mx-auto">
+        {isAnalyzing ? (
+            <SolarImageProcessor uploadedImage={uploadedImage?.preview} onBack={handleBackToUpload} />
+        ) : !uploadedImage ? (
+          // Uploader View
+          <div onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop} onClick={handleBrowseClick} className={`group w-full max-w-3xl mx-auto p-8 text-center border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 ease-in-out ${isDragging ? 'border-yellow-400 bg-gray-800 scale-105 shadow-2xl shadow-yellow-500/10' : 'border-gray-600 bg-gray-900/50 hover:border-yellow-500 hover:bg-gray-800'}`}>
+            <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="image/*" className="hidden" />
+            <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
+              <UploadIcon />
+              <p className="text-xl font-semibold text-white">Drag & Drop your image here</p>
+              <p className="text-gray-400">or <span className="font-semibold text-yellow-400">click to browse</span></p>
+              <p className="text-xs text-gray-500">Supports: PNG, JPG, GIF</p>
+            </div>
+          </div>
+        ) : (
+          // Preview View
+          <div className="w-full max-w-3xl mx-auto p-4 text-center bg-gray-800/50 border border-gray-700 rounded-2xl relative shadow-2xl shadow-black/30 animate-fade-in">
+            <div className="relative">
+                <img src={uploadedImage.preview} alt="Solar image preview" className="w-full h-auto max-h-[60vh] object-contain rounded-xl" />
+                <button onClick={handleRemoveImage} className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white rounded-full p-2 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 transition-all duration-300" aria-label="Remove image">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div className="mt-4 flex flex-col items-center gap-4">
+              <p className="text-white truncate font-mono text-sm" title={uploadedImage.file.name}>{uploadedImage.file.name}</p>
+              <button onClick={handleAnalyzeClick} className="py-3 px-8 bg-yellow-500 text-gray-900 rounded-full font-bold shadow-lg shadow-yellow-500/20 hover:bg-yellow-400 hover:scale-105 transform transition-all duration-300 ease-in-out">
+                Analyze Flare Activity
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

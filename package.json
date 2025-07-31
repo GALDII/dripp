@@ -12,6 +12,7 @@
     "@testing-library/user-event": "^13.2.1",
     "framer-motion": "^12.23.6",
     "lucide-react": "^0.525.0",
+    "opencv-react": "^0.0.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.63",
