@@ -104,7 +104,7 @@ export default function Home() {
           </motion.p>
           <motion.div variants={itemVariants}>
             <a
-              href="/upload"
+              href="/predict" // Changed to a link
               className="mt-10 inline-block bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-4 px-10 rounded-full shadow-lg shadow-yellow-500/40 transition-transform transform hover:scale-110"
             >
               Get Started →
@@ -182,7 +182,7 @@ export default function Home() {
             <h2 className="text-4xl font-bold mb-4">Ready to Analyze the Sun?</h2>
             <p className="text-xl text-gray-400 mb-8 max-w-2xl mx-auto">Upload your image now and get an instant prediction from our AI model.</p>
             <a
-              href="/upload"
+              href="/predict" // Changed to a link
               className="inline-block bg-gradient-to-r from-yellow-500 to-orange-500 text-black font-bold py-4 px-10 rounded-full shadow-lg shadow-yellow-500/40 transition-transform transform hover:scale-110"
             >
               Predict a Flare
@@ -192,3 +192,9 @@ export default function Home() {
     </>
   );
 }
+
+
+
+
+
+
