@@ -1,211 +1,87 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  LogarithmicScale,
-  TimeScale,
-  Filler,
-} from 'chart.js';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  LogarithmicScale,
-  TimeScale,
-  Filler
-);
-
-// --- Live Solar Flare Chart Component ---
+// --- Custom SVG Chart Component ---
 function XrayFluxChart() {
-  const [chartData, setChartData] = useState(null);
+  const [chartData, setChartData] = useState([]);
   const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const generateMockData = () => {
+  const generateMockData = useCallback(() => {
     const now = new Date();
     const data = [];
-    
-    // Generate 24 hours of mock solar flux data
     for (let i = 0; i < 144; i++) { // Every 10 minutes for 24 hours
       const time = new Date(now.getTime() - (143 - i) * 10 * 60 * 1000);
-      
-      // Simulate realistic solar flux values with occasional flares
-      let baseFlux = 1e-8 + Math.random() * 5e-8; // Quiet sun background
-      
-      // Add occasional flares
-      if (Math.random() < 0.02) { // 2% chance of flare activity
-        baseFlux += Math.random() * 1e-5; // C-class flare
-      }
-      if (Math.random() < 0.005) { // 0.5% chance of stronger flare
-        baseFlux += Math.random() * 1e-4; // M-class flare
-      }
-      
+      let baseFlux = 1e-8 + Math.random() * 5e-8;
+      if (Math.random() < 0.02) baseFlux += Math.random() * 1e-5;
+      if (Math.random() < 0.005) baseFlux += Math.random() * 1e-4;
+      const flux = Math.max(1e-9, baseFlux);
       data.push({
-        time: time,
-        flux: Math.max(1e-9, baseFlux), // Ensure minimum value for log scale
-        timeString: time.toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          timeZone: 'UTC', 
-          hour12: false 
-        })
+        time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', hour12: false }),
+        flux: flux,
+        logFlux: Math.log10(flux)
       });
     }
-    
     return data;
-  };
-
-  const fetchData = async () => {
-    try {
-      setError(null);
-      
-      // Try multiple API endpoints and CORS proxies
-      const endpoints = [
-        "https://services.swpc.noaa.gov/json/goes/primary/xray-flux-1-day.json",
-        `https://api.allorigins.win/raw?url=${encodeURIComponent("https://services.swpc.noaa.gov/json/goes/primary/xray-flux-1-day.json")}`,
-        `https://cors-anywhere.herokuapp.com/https://services.swpc.noaa.gov/json/goes/primary/xray-flux-1-day.json`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://services.swpc.noaa.gov/json/goes/primary/xray-flux-1-day.json")}`
-      ];
-      
-      let json = null;
-      let successful = false;
-      
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`Trying endpoint: ${endpoint}`);
-          const response = await fetch(endpoint, {
-            headers: {
-              'Accept': 'application/json',
-            }
-          });
-          
-          if (response.ok) {
-            json = await response.json();
-            if (json && Array.isArray(json) && json.length > 0) {
-              successful = true;
-              console.log(`Successfully fetched data from: ${endpoint}`);
-              break;
-            }
-          }
-        } catch (endpointError) {
-          console.log(`Endpoint ${endpoint} failed:`, endpointError.message);
-          continue;
-        }
-      }
-      
-      if (!successful || !json) {
-        console.log("All endpoints failed, using mock data");
-        const mockData = generateMockData();
-        setChartData({
-          labels: mockData.map(d => d.timeString),
-          datasets: [{
-            label: 'GOES 1–8 Å Flux (Simulated)',
-            data: mockData.map(d => d.flux),
-            borderColor: '#FBBF24',
-            backgroundColor: 'rgba(251, 191, 36, 0.2)',
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.4,
-            fill: true,
-          }],
-        });
-        setLastUpdated(new Date().toLocaleTimeString());
-        return;
-      }
-      
-      // Process real data
-      const filteredData = json.filter(d => d.energy === '0.1-0.8nm' && d.flux > 0);
-      
-      if (filteredData.length === 0) {
-        throw new Error("No valid flux data found");
-      }
-
-      setChartData({
-        labels: filteredData.map(d => 
-          new Date(d.time_tag).toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            timeZone: 'UTC', 
-            hour12: false 
-          })
-        ),
-        datasets: [{
-          label: 'GOES 1–8 Å Flux (Live)',
-          data: filteredData.map(d => d.flux),
-          borderColor: '#FBBF24',
-          backgroundColor: 'rgba(251, 191, 36, 0.2)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        }],
-      });
-      
-      setLastUpdated(new Date().toLocaleTimeString());
-      setRetryCount(0); // Reset retry count on success
-      
-    } catch (e) {
-      console.error("Failed to fetch solar flare data:", e);
-      setRetryCount(prev => prev + 1);
-      
-      if (retryCount < 2) {
-        setError(`Connection attempt ${retryCount + 1}/3 failed. Retrying...`);
-        // Retry after a delay
-        setTimeout(() => fetchData(), 3000);
-      } else {
-        // Use mock data after 3 failed attempts
-        console.log("Max retries reached, using mock data");
-        const mockData = generateMockData();
-        setChartData({
-          labels: mockData.map(d => d.timeString),
-          datasets: [{
-            label: 'GOES 1–8 Å Flux (Simulated)',
-            data: mockData.map(d => d.flux),
-            borderColor: '#94A3B8', // Gray color to indicate mock data
-            backgroundColor: 'rgba(148, 163, 184, 0.2)',
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.4,
-            fill: true,
-          }],
-        });
-        setError("Using simulated data - live connection unavailable");
-        setLastUpdated(new Date().toLocaleTimeString());
-      }
-    }
-  };
-
-  useEffect(() => {
-    fetchData(); // Fetch immediately on component mount
-    const interval = setInterval(fetchData, 120000); // Set up auto-refresh every 2 minutes
-    return () => clearInterval(interval); // Cleanup on component unmount
   }, []);
 
-  if (error && !chartData) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400 mb-4"></div>
-        <p className="text-yellow-400 mb-2">Loading Solar Activity...</p>
-        <p className="text-gray-400 text-sm">{error}</p>
-      </div>
-    );
-  }
-  
-  if (!chartData) {
+  // MODIFIED: This function now fetches from your local server
+  const fetchData = useCallback(async () => {
+    try {
+      setError(null);
+      // Attempt to fetch live data from your proxy server
+      const response = await fetch("http://localhost:3001/api/solar-data");
+      
+      if (!response.ok) {
+        throw new Error(`Proxy server returned status ${response.status}`);
+      }
+      
+      const liveData = await response.json();
+
+      if (!Array.isArray(liveData) || liveData.length === 0) {
+        throw new Error("Live data is empty or invalid");
+      }
+      
+      // Process the live data
+      const processedData = liveData
+        .filter(d => d.energy === '0.1-0.8nm' && d.flux > 0)
+        .map(d => {
+          const flux = Math.max(1e-9, d.flux); // Ensure flux is not zero for log scale
+          return {
+            time: new Date(d.time_tag).toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              timeZone: 'UTC', 
+              hour12: false 
+            }),
+            flux: flux,
+            logFlux: Math.log10(flux)
+          };
+        });
+      
+      if (processedData.length === 0) {
+        throw new Error("No valid X-ray flux data found in live feed.");
+      }
+
+      setChartData(processedData);
+      setLastUpdated(new Date().toLocaleTimeString());
+      
+    } catch (e) {
+      // Fallback to mock data if the server fails
+      console.error("Live data fetch failed:", e.message);
+      const mockData = generateMockData();
+      setChartData(mockData);
+      setError("Live data unavailable - using simulated data");
+      setLastUpdated(new Date().toLocaleTimeString());
+    }
+  }, [generateMockData]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 120000); // Update every 2 minutes
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  if (!chartData.length) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400 mb-4"></div>
@@ -214,60 +90,64 @@ function XrayFluxChart() {
     );
   }
 
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      x: {
-        type: 'category',
-        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-        ticks: { 
-          color: 'rgba(255, 255, 255, 0.7)', 
-          maxRotation: 45, 
-          minRotation: 45,
-          maxTicksLimit: 12 
-        },
-      },
-      y: {
-        type: 'logarithmic',
-        min: 1e-9,
-        max: 1e-2,
-        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-        ticks: {
-          color: 'rgba(255, 255, 255, 0.7)',
-          callback: function(value) {
-            if (value === 1e-8) return 'A';
-            if (value === 1e-7) return 'B';
-            if (value === 1e-6) return 'C';
-            if (value === 1e-5) return 'M';
-            if (value === 1e-4) return 'X';
-            return null;
-          }
-        },
-      },
-    },
-    plugins: {
-      legend: { 
-        display: true,
-        labels: { color: 'rgba(255, 255, 255, 0.8)' }
-      },
-      tooltip: { 
-        mode: 'index', 
-        intersect: false,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        titleColor: '#FBBF24',
-        bodyColor: '#FFFFFF'
-      },
-    },
-    animation: {
-      duration: 1000,
-      easing: 'easeInOutQuart'
-    }
-  };
+  // Chart dimensions and scaling
+  const chartWidth = 800;
+  const chartHeight = 300;
+  const padding = { top: 20, right: 30, bottom: 60, left: 60 };
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+
+  // Scale data points
+  const minLogFlux = -9;
+  const maxLogFlux = -2;
+  
+  const points = chartData.map((d, i) => {
+    const x = (i / (chartData.length - 1)) * plotWidth;
+    const normalizedLog = (d.logFlux - minLogFlux) / (maxLogFlux - minLogFlux);
+    const y = plotHeight - (normalizedLog * plotHeight);
+    return { x: x + padding.left, y: y + padding.top, flux: d.flux, time: d.time };
+  });
+
+  // Create path for line
+  const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   return (
-    <div className="relative h-full">
-      <Line data={chartData} options={options} />
+    <div className="relative h-full w-full">
+      <svg width="100%" height="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="bg-gray-900/50 rounded-lg">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+          </pattern>
+        </defs>
+        <rect width={plotWidth} height={plotHeight} x={padding.left} y={padding.top} fill="url(#grid)" />
+        
+        {['A', 'B', 'C', 'M', 'X'].map((label, i) => {
+          const y = padding.top + plotHeight - (i / 4) * plotHeight;
+          return (
+            <g key={label}>
+              <line x1={padding.left - 5} y1={y} x2={padding.left} y2={y} stroke="rgba(255,255,255,0.7)" />
+              <text x={padding.left - 10} y={y + 5} textAnchor="end" fill="rgba(255,255,255,0.7)" fontSize="12">{label}</text>
+            </g>
+          );
+        })}
+        
+        {chartData.filter((_, i) => i % Math.floor(chartData.length / 6) === 0).map((d, i) => {
+          const x = padding.left + (i * Math.floor(chartData.length / 6) / (chartData.length - 1)) * plotWidth;
+          return (
+            <g key={i}>
+              <line x1={x} y1={chartHeight - padding.bottom} x2={x} y2={chartHeight - padding.bottom + 5} stroke="rgba(255,255,255,0.7)" />
+              <text x={x} y={chartHeight - padding.bottom + 20} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="10">{d.time}</text>
+            </g>
+          );
+        })}
+        
+        <path d={`${pathData} L ${points[points.length - 1].x} ${chartHeight - padding.bottom} L ${padding.left} ${chartHeight - padding.bottom} Z`} fill="rgba(251, 191, 36, 0.2)" />
+        <path d={pathData} fill="none" stroke="#FBBF24" strokeWidth="2" />
+        
+        <text x={chartWidth / 2} y={chartHeight - 10} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="12">Time (UTC)</text>
+        <text x={20} y={chartHeight / 2} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="12" transform={`rotate(-90, 20, ${chartHeight / 2})`}>X-ray Flux Class</text>
+      </svg>
+      
       {error && (
         <div className="absolute top-2 right-2 bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg text-sm border border-orange-500/30">
           {error}
@@ -307,145 +187,194 @@ const ImagePanel = ({ src, title, isLoading }) => (
   </div>
 );
 
-// --- OPENCV IMAGE PROCESSING COMPONENT ---
+// --- SOLAR IMAGE PROCESSOR ---
 function SolarImageProcessor({ uploadedImage, onBack }) {
   const [processed, setProcessed] = useState({ original: null, contours: null, mask: null });
   const [isLoading, setIsLoading] = useState(true);
+  const [prediction, setPrediction] = useState(null);
+
+  const analyzeImage = useCallback(async (imageSrc) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          let totalBrightness = 0, brightPixels = 0, hotspots = 0, veryBrightPixels = 0, extremeHotspots = 0;
+          const brightnessValues = [];
+          for (let i = 0; i < data.length; i += 4) {
+            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            brightnessValues.push(brightness);
+            totalBrightness += brightness;
+            if (brightness > 160) brightPixels++;
+            if (brightness > 200) veryBrightPixels++;
+            if (brightness > 230) hotspots++;
+            if (brightness > 245) extremeHotspots++;
+          }
+          const totalPixels = data.length / 4;
+          const avgBrightness = totalBrightness / totalPixels;
+          const brightRatio = brightPixels / totalPixels;
+          const veryBrightRatio = veryBrightPixels / totalPixels;
+          const hotspotRatio = hotspots / totalPixels;
+          const extremeRatio = extremeHotspots / totalPixels;
+          const variance = brightnessValues.reduce((sum, b) => sum + Math.pow(b - avgBrightness, 2), 0) / totalPixels;
+          const stdDev = Math.sqrt(variance);
+          const contourCanvas = document.createElement('canvas');
+          const contourCtx = contourCanvas.getContext('2d');
+          contourCanvas.width = canvas.width;
+          contourCanvas.height = canvas.height;
+          contourCtx.drawImage(img, 0, 0);
+          const regionSize = Math.max(20, Math.min(canvas.width, canvas.height) / 15);
+          const step = Math.floor(regionSize / 2);
+          contourCtx.lineWidth = 2;
+          for (let y = 0; y < canvas.height - regionSize; y += step) {
+            for (let x = 0; x < canvas.width - regionSize; x += step) {
+              const regionData = ctx.getImageData(x, y, regionSize, regionSize);
+              let regionBrightness = 0, regionHotspots = 0;
+              for (let i = 0; i < regionData.data.length; i += 4) {
+                const brightness = (regionData.data[i] + regionData.data[i + 1] + regionData.data[i + 2]) / 3;
+                regionBrightness += brightness;
+                if (brightness > 230) regionHotspots++;
+              }
+              const avgRegionBrightness = regionBrightness / (regionSize * regionSize);
+              const regionHotspotRatio = regionHotspots / (regionSize * regionSize);
+              if (avgRegionBrightness > 220 || regionHotspotRatio > 0.1) {
+                contourCtx.strokeStyle = '#EF4444';
+                contourCtx.strokeRect(x, y, regionSize, regionSize);
+              } else if (avgRegionBrightness > 190 || regionHotspotRatio > 0.05) {
+                contourCtx.strokeStyle = '#F97316';
+                contourCtx.strokeRect(x, y, regionSize, regionSize);
+              } else if (avgRegionBrightness > 160) {
+                contourCtx.strokeStyle = '#FBBF24';
+                contourCtx.strokeRect(x, y, regionSize, regionSize);
+              }
+            }
+          }
+          const maskCanvas = document.createElement('canvas');
+          const maskCtx = maskCanvas.getContext('2d');
+          maskCanvas.width = canvas.width;
+          maskCanvas.height = canvas.height;
+          const maskImageData = maskCtx.createImageData(canvas.width, canvas.height);
+          const maskData = maskImageData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            if (brightness > 230) {
+              maskData[i] = 255; maskData[i + 1] = 0; maskData[i + 2] = 0;
+            } else if (brightness > 190) {
+              maskData[i] = 255; maskData[i + 1] = 165; maskData[i + 2] = 0;
+            } else if (brightness > 160) {
+              maskData[i] = 255; maskData[i + 1] = 255; maskData[i + 2] = 0;
+            } else {
+              maskData[i] = brightness; maskData[i + 1] = brightness; maskData[i + 2] = brightness;
+            }
+            maskData[i + 3] = 255;
+          }
+          maskCtx.putImageData(maskImageData, 0, 0);
+          let flareClass = 'No Flare', confidence = 0.70;
+          const intensityScore = (extremeRatio * 10) + (hotspotRatio * 5) + (veryBrightRatio * 2) + (brightRatio);
+          const variabilityScore = stdDev / 255;
+          const combinedScore = intensityScore + variabilityScore;
+          if (combinedScore > 0.8 || extremeRatio > 0.05) {
+            flareClass = 'X-Class';
+            confidence = Math.min(0.95, 0.80 + combinedScore * 0.15);
+          } else if (combinedScore > 0.4 || hotspotRatio > 0.03) {
+            flareClass = 'M-Class';
+            confidence = Math.min(0.90, 0.75 + combinedScore * 0.15);
+          } else if (combinedScore > 0.2 || veryBrightRatio > 0.08) {
+            flareClass = 'C-Class';
+            confidence = Math.min(0.85, 0.70 + combinedScore * 0.15);
+          } else if (combinedScore > 0.1 || brightRatio > 0.15) {
+            flareClass = 'B-Class';
+            confidence = Math.min(0.80, 0.65 + combinedScore * 0.15);
+          }
+          resolve({
+            original: imageSrc, contours: contourCanvas.toDataURL(), mask: maskCanvas.toDataURL(),
+            prediction: {
+              class: flareClass, confidence: confidence, brightRatio: brightRatio, veryBrightRatio: veryBrightRatio,
+              hotspotRatio: hotspotRatio, extremeRatio: extremeRatio, avgBrightness: avgBrightness, stdDev: stdDev,
+              intensityScore: intensityScore, hotspots: hotspots, extremeHotspots: extremeHotspots, totalPixels: totalPixels
+            }
+          });
+        } catch (error) {
+          console.error("Image analysis error:", error);
+          resolve({ original: imageSrc, contours: imageSrc, mask: imageSrc, prediction: { class: 'Analysis Error', confidence: 0, error: error.message } });
+        }
+      };
+      img.onerror = () => {
+        resolve({ original: imageSrc, contours: imageSrc, mask: imageSrc, prediction: { class: 'Image Load Error', confidence: 0 } });
+      };
+      img.src = imageSrc;
+    });
+  }, []);
 
   useEffect(() => {
     if (!uploadedImage) return;
-    
-    // Check if OpenCV is available
-    if (!window.cv || !window.cv.imread) {
-      console.log("OpenCV not available, using mock processing");
-      setProcessed({ 
-        original: uploadedImage, 
-        contours: uploadedImage, 
-        mask: uploadedImage 
-      });
-      setIsLoading(false);
-      return;
-    }
-    
-    setIsLoading(true);
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.src = uploadedImage;
-    
-    img.onload = () => {
+    const processImage = async () => {
+      setIsLoading(true);
+      setPrediction("Analyzing solar activity patterns...");
       try {
-        const cv = window.cv;
-        let src = cv.imread(img);
-        let gray = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-        
-        let binary = new cv.Mat();
-        cv.threshold(gray, binary, 200, 255, cv.THRESH_BINARY);
-        
-        let edges = new cv.Mat();
-        cv.Canny(binary, edges, 10, 100);
-        
-        let planes = new cv.MatVector();
-        cv.split(src, planes);
-        const firstChannel = planes.get(0);
-        
-        let blended = new cv.Mat();
-        cv.addWeighted(firstChannel, 0.8, edges, 0.4, 0.5, blended);
-        
-        let contours = new cv.MatVector();
-        let hierarchy = new cv.Mat();
-        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-        
-        cv.cvtColor(blended, blended, cv.COLOR_GRAY2RGBA);
-
-        // Draw contour rectangles
-        for (let i = 0; i < contours.size(); ++i) {
-          let rect = cv.boundingRect(contours.get(i));
-          let color = new cv.Scalar(255, 0, 0, 255);
-          cv.rectangle(blended, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), color, 2);
+        const results = await analyzeImage(uploadedImage);
+        setProcessed({ original: results.original, contours: results.contours, mask: results.mask });
+        if (results.prediction.error) {
+          setPrediction(`Analysis Error: ${results.prediction.error}`);
+        } else {
+          const pred = results.prediction;
+          const analysisText = `CLASSIFICATION: ${pred.class} (${(pred.confidence * 100).toFixed(1)}% confidence)\n\n` + `BRIGHTNESS ANALYSIS:\n` + `• Average: ${pred.avgBrightness.toFixed(1)}/255\n` + `• Standard Deviation: ${pred.stdDev.toFixed(1)}\n` + `• Bright Pixels (>160): ${(pred.brightRatio * 100).toFixed(1)}%\n` + `• Very Bright (>200): ${(pred.veryBrightRatio * 100).toFixed(1)}%\n` + `• Hotspots (>230): ${pred.hotspots}\n` + `• Extreme Hotspots (>245): ${pred.extremeHotspots}\n\n` + `INTENSITY METRICS:\n` + `• Composite Score: ${pred.intensityScore.toFixed(3)}\n` + `• Total Pixels: ${pred.totalPixels.toLocaleString()}`;
+          setPrediction(analysisText);
         }
-
-        const canvas = document.createElement('canvas');
-        cv.imshow(canvas, blended);
-        const contourDataUrl = canvas.toDataURL();
-        
-        cv.imshow(canvas, binary);
-        const maskDataUrl = canvas.toDataURL();
-        
-        setProcessed({ 
-          original: uploadedImage, 
-          contours: contourDataUrl, 
-          mask: maskDataUrl 
-        });
-        
-        // Cleanup OpenCV matrices
-        src.delete();
-        gray.delete();
-        binary.delete();
-        edges.delete();
-        contours.delete();
-        hierarchy.delete();
-        planes.delete();
-        firstChannel.delete();
-        blended.delete();
-        
       } catch (error) {
-        console.error("Error during OpenCV processing:", error);
-        // Fallback to original image if processing fails
-        setProcessed({ 
-          original: uploadedImage, 
-          contours: uploadedImage, 
-          mask: uploadedImage 
-        });
-      } finally {
-        setIsLoading(false);
+        console.error("Image processing error:", error);
+        setPrediction("Image processing failed. Please try a different image.");
+        setProcessed({ original: uploadedImage, contours: uploadedImage, mask: uploadedImage });
       }
-    };
-    
-    img.onerror = () => {
-      console.error("Failed to load image for processing.");
       setIsLoading(false);
     };
-  }, [uploadedImage]);
+    processImage();
+  }, [uploadedImage, analyzeImage]);
 
   return (
-    <div className="w-full animate-fade-in">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl">
-        <ImagePanel src={processed.original} title="Original Image" isLoading={isLoading} />
-        <ImagePanel src={processed.contours} title="Detected Features" isLoading={isLoading} />
-        <ImagePanel src={processed.mask} title="Brightness Threshold" isLoading={isLoading} />
-      </div>
-      <div className="text-center mt-8">
-        <button 
-          onClick={onBack} 
-          className="py-2 px-6 bg-gray-600 text-white rounded-full font-bold shadow-md hover:bg-gray-500 transition-all duration-300"
-        >
-          Analyze Another Image
-        </button>
+    <div className="w-full">
+      <style jsx>{` @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .fade-in { animation: fadeIn 0.6s ease-out; } `}</style>
+      <div className="fade-in">
+        <div className="text-center mb-8 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+          <h3 className="text-2xl font-bold text-yellow-400 mb-4">Solar Flare Analysis Results</h3>
+          {isLoading ? (<div className="flex items-center justify-center space-x-3"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400"></div><p className="text-white text-lg">Analyzing solar activity...</p></div>) : (<div className="bg-gray-900/50 p-4 rounded-lg border border-gray-600 max-w-2xl mx-auto"><pre className="text-green-400 text-left text-sm font-mono whitespace-pre-wrap overflow-x-auto">{prediction || "Analysis complete - check results below"}</pre></div>)}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl mx-auto">
+          <ImagePanel src={processed.original} title="Original Image" isLoading={isLoading} />
+          <ImagePanel src={processed.contours} title="Feature Detection" isLoading={isLoading} />
+          <ImagePanel src={processed.mask} title="Brightness Analysis" isLoading={isLoading} />
+        </div>
+        <div className="mt-8 text-center">
+          <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-600 max-w-2xl mx-auto">
+            <p className="text-sm text-gray-400 mb-2"><strong className="text-yellow-400">Feature Detection Legend:</strong></p>
+            <div className="flex flex-wrap justify-center gap-3 text-xs">
+              <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded">Red: Extreme Activity</span>
+              <span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded">Orange: High Activity</span>
+              <span className="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Yellow: Moderate Activity</span>
+            </div>
+          </div>
+        </div>
+        <div className="text-center mt-8">
+          <button onClick={onBack} className="py-3 px-8 bg-gray-600 text-white rounded-full font-bold shadow-md hover:bg-gray-500 transition-all duration-300 transform hover:scale-105">← Analyze Another Image</button>
+        </div>
       </div>
     </div>
   );
 }
 
-// --- MAIN UPLOAD PAGE COMPONENT ---
-export default function UploadPage() {
+// --- MAIN APPLICATION COMPONENT ---
+export default function SolarFlareApp() {
   const [uploadedImage, setUploadedImage] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isCvReady, setIsCvReady] = useState(false);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    // Check if OpenCV is loaded, or set it as ready if not needed
-    if (window.cv && window.cv.imread) {
-      setIsCvReady(true);
-    } else if (window.cv) {
-      window.cv.onRuntimeInitialized = () => setIsCvReady(true);
-    } else {
-      // Set ready even without OpenCV for basic functionality
-      setIsCvReady(true);
-    }
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -462,6 +391,8 @@ export default function UploadPage() {
       }
       const imageObject = { file, preview: URL.createObjectURL(file) };
       setUploadedImage(imageObject);
+    } else {
+      alert('Please select a valid image file (PNG, JPG, GIF, WEBP)');
     }
   };
 
@@ -474,136 +405,72 @@ export default function UploadPage() {
   
   const handleBrowseClick = () => fileInputRef.current?.click();
   const handleFileInputChange = (e) => handleFile(e.target.files?.[0]);
-  const handleAnalyzeClick = () => { if(uploadedImage) setIsAnalyzing(true); };
-  const handleBackToUpload = () => { 
-    setIsAnalyzing(false); 
-    setUploadedImage(null); 
-  };
+  const handleAnalyzeClick = () => { if (uploadedImage) setIsAnalyzing(true); };
+  const handleBackToUpload = () => { setIsAnalyzing(false); };
 
-  const handleDragEnter = (e) => { 
-    e.preventDefault(); 
-    e.stopPropagation(); 
-    setIsDragging(true); 
-  };
-  
-  const handleDragLeave = (e) => { 
-    e.preventDefault(); 
-    e.stopPropagation(); 
-    setIsDragging(false); 
-  };
-  
-  const handleDragOver = (e) => { 
-    e.preventDefault(); 
-    e.stopPropagation(); 
-  };
-  
+  const handleDragEnter = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); if (e.target === e.currentTarget) { setIsDragging(false); } };
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    handleFile(e.dataTransfer.files?.[0]);
+    const files = e.dataTransfer.files;
+    if (files && files[0]) {
+      handleFile(files[0]);
+    }
   };
 
-  if (!isCvReady) {
-    return (
-      <div className="bg-gray-900 text-white p-8 flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto mb-4"></div>
-          <p className="text-xl">Loading Analysis Engine...</p>
-        </div>
-      </div>
-    );
-  }
-  
   return (
     <div className="bg-gray-900 text-white p-4 sm:p-8 min-h-screen w-full">
-      <style jsx>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-      `}</style>
-      
-      <div className="w-full max-w-7xl mx-auto flex flex-col items-center justify-center pt-8">
-        {isAnalyzing ? (
-          <SolarImageProcessor uploadedImage={uploadedImage?.preview} onBack={handleBackToUpload} />
-        ) : !uploadedImage ? (
-          <div 
-            onDragEnter={handleDragEnter} 
-            onDragLeave={handleDragLeave} 
-            onDragOver={handleDragOver} 
-            onDrop={handleDrop} 
-            onClick={handleBrowseClick} 
-            className={`group w-full max-w-3xl mx-auto p-8 text-center border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 ease-in-out ${
-              isDragging 
-                ? 'border-yellow-400 bg-gray-800 scale-105 shadow-2xl shadow-yellow-500/10' 
-                : 'border-gray-600 bg-gray-900/50 hover:border-yellow-500 hover:bg-gray-800'
-            }`}
-          >
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileInputChange} 
-              accept="image/*" 
-              className="hidden" 
-            />
-            <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
-              <UploadIcon />
-              <p className="text-xl font-semibold text-white">Drag & Drop your solar image here</p>
-              <p className="text-gray-400">or <span className="font-semibold text-yellow-400">click to browse</span></p>
-              <p className="text-xs text-gray-500">Supports: PNG, JPG, GIF, WEBP</p>
-            </div>
-          </div>
-        ) : (
-          <div className="w-full max-w-3xl mx-auto p-4 text-center bg-gray-800/50 border border-gray-700 rounded-2xl relative shadow-2xl shadow-black/30 animate-fade-in">
-            <div className="relative">
-              <img 
-                src={uploadedImage.preview} 
-                alt="Solar image preview" 
-                className="w-full h-auto max-h-[60vh] object-contain rounded-xl" 
-              />
-              <button 
-                onClick={handleRemoveImage} 
-                className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white rounded-full p-2 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 transition-all duration-300" 
-                aria-label="Remove image"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="mt-4 flex flex-col items-center gap-4">
-              <p className="text-white truncate font-mono text-sm" title={uploadedImage.file?.name}>
-                {uploadedImage.file?.name}
-              </p>
-              <button 
-                onClick={handleAnalyzeClick} 
-                className="py-3 px-8 bg-yellow-500 text-gray-900 rounded-full font-bold shadow-lg shadow-yellow-500/20 hover:bg-yellow-400 hover:scale-105 transform transition-all duration-300 ease-in-out"
-              >
-                Analyze Flare Activity
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <section className="py-12 mt-16">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center mb-4 text-yellow-400">Live Solar Activity Monitor</h2>
-          <p className="text-center text-gray-400 mb-8">
-            Real-time X-ray flux monitoring from GOES satellites (NOAA Space Weather Prediction Center)
-          </p>
-          <div className="bg-black/20 backdrop-blur-lg p-4 md:p-6 rounded-2xl border border-gray-700 shadow-lg h-80 relative">
-            <XrayFluxChart />
-          </div>
-          <div className="mt-4 text-center text-sm text-gray-500">
-            <p>Solar flare classes: A (background) → B → C → M → X (most intense)</p>
-          </div>
+      <div className="w-full max-w-7xl mx-auto">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-yellow-400 mb-4">Solar Flare Classifier</h1>
+          <p className="text-xl text-gray-300">AI-powered solar activity analysis using computer vision</p>
         </div>
-      </section>
+        <div className="flex flex-col items-center justify-center">
+          {isAnalyzing ? (
+            <SolarImageProcessor uploadedImage={uploadedImage?.preview} onBack={handleBackToUpload} />
+          ) : !uploadedImage ? (
+            <div onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop} onClick={handleBrowseClick} className={`group w-full max-w-3xl mx-auto p-12 text-center border-2 border-dashed rounded-2xl cursor-pointer transition-all duration-300 ease-in-out ${isDragging ? 'border-yellow-400 bg-gray-800 scale-105 shadow-2xl shadow-yellow-500/20' : 'border-gray-600 bg-gray-900/50 hover:border-yellow-500 hover:bg-gray-800'}`}>
+              <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="image/*" className="hidden" />
+              <div className="flex flex-col items-center justify-center space-y-6 pointer-events-none">
+                <UploadIcon />
+                <div>
+                  <p className="text-2xl font-semibold text-white mb-2">Drop your solar image here</p>
+                  <p className="text-gray-400 text-lg">or <span className="font-semibold text-yellow-400">click to browse</span></p>
+                  <p className="text-sm text-gray-500 mt-4">Supports: PNG, JPG, GIF, WEBP • Max size: 10MB</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-3xl mx-auto p-6 text-center bg-gray-800/50 border border-gray-700 rounded-2xl relative shadow-2xl shadow-black/30">
+              <div className="relative">
+                <img src={uploadedImage.preview} alt="Solar image preview" className="w-full h-auto max-h-[60vh] object-contain rounded-xl shadow-lg" />
+                <button onClick={handleRemoveImage} className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white rounded-full p-2 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500 transition-all duration-300" aria-label="Remove image">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="mt-6 flex flex-col items-center gap-4">
+                <p className="text-white truncate font-mono text-sm max-w-full" title={uploadedImage.file?.name}>{uploadedImage.file?.name}</p>
+                <button onClick={handleAnalyzeClick} className="py-3 px-10 bg-yellow-500 text-gray-900 rounded-full font-bold shadow-lg shadow-yellow-500/20 hover:bg-yellow-400 hover:scale-105 transform transition-all duration-300 ease-in-out">Analyze Flare Activity</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <section className="py-12 mt-16">
+          <div className="max-w-7xl mx-auto">
+            <h2 className="text-3xl font-bold text-center mb-6 text-yellow-400">Live Solar Activity Monitor</h2>
+            <div className="bg-black/20 backdrop-blur-lg p-4 md:p-6 rounded-2xl border border-gray-700 shadow-lg h-80 relative">
+              <XrayFluxChart />
+            </div>
+            <div className="mt-4 text-center text-sm text-gray-500">
+              <p>Solar flare classes: A (background) → B → C → M → X (most intense)</p>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
+
